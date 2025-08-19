@@ -1,4 +1,4 @@
-# app.py - VERSÃO COM FLUXO DE CONVERSA
+# app.py - VERSÃO COM NOTIFICAÇÃO INTERATIVA
 import logging
 import os
 import asyncio
@@ -24,25 +24,19 @@ app = flask.Flask(__name__)
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Definindo "estados" para a nossa conversa.
 CHOOSE_SERVICE = 1
 
 async def start_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Inicia a conversa (quando recebe /start ou uma mensagem de texto)."""
     user_info = update.message.from_user
     logger.info(f"Usuário {user_info.first_name} iniciou uma nova conversa.")
-
-    # Cria um teclado com as opções para o cliente
     keyboard = [["1. App de Internet"], ["2. App de Streaming"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    
     await update.message.reply_text(
         "Olá! Seja bem-vindo(a). Sou seu assistente virtual.\n\n"
         "Para começarmos, qual dos nossos serviços você tem interesse?",
         reply_markup=reply_markup,
     )
-    
-    # Diz ao ConversationHandler que agora estamos no estado CHOOSE_SERVICE
     return CHOOSE_SERVICE
 
 async def handle_service_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -50,38 +44,44 @@ async def handle_service_choice(update: Update, context: ContextTypes.DEFAULT_TY
     user_info = update.message.from_user
     choice = update.message.text
     
-    # Determina o serviço escolhido com base no texto
     service = ""
     if "1" in choice:
         service = "App de Internet"
     elif "2" in choice:
         service = "App de Streaming"
     else:
-        # Se o usuário digitar algo inesperado
         await update.message.reply_text("Por favor, escolha uma das opções usando os botões.")
-        return CHOOSE_SERVICE # Permanece no mesmo estado
+        return CHOOSE_SERVICE
 
     logger.info(f"Usuário {user_info.first_name} escolheu o serviço: {service}")
 
-    # Notificação para você (o administrador)
+    # <<< MUDANÇA CRUCIAL AQUI >>>
+    
+    # 1. Pega o ID numérico do usuário
+    user_id = user_info.id
+    
+    # 2. Cria o link direto para a conversa com o usuário
+    user_link = f"tg://user?id={user_id}"
+    
+    # 3. Monta a nova mensagem de notificação com o link clicável
+    username_part = f"(@{user_info.username})" if user_info.username else ""
     mensagem_notificacao = (
         f"✅ Novo Lead Qualificado!\n\n"
-        f"De: {user_info.first_name} (@{user_info.username})\n"
-        f"Serviço de Interesse: **{service}**"
+        f"**Cliente:** {user_info.first_name} {username_part}\n"
+        f"**Serviço de Interesse:** {service}\n\n"
+        f"➡️ **[Conversar com o Cliente]({user_link})**"
     )
     
-    # Envia a notificação e a resposta de confirmação para o cliente
     await asyncio.gather(
         context.bot.send_message(chat_id=SEU_CHAT_ID, text=mensagem_notificacao, parse_mode='Markdown'),
         update.message.reply_text(
             f"Entendido, seu interesse é em **{service}**.\n\n"
             "Um de nossos especialistas humanos entrará em contato com você em breve aqui mesmo neste chat. Obrigado!",
-            reply_markup=ReplyKeyboardRemove(), # Remove o teclado de botões
+            reply_markup=ReplyKeyboardRemove(),
             parse_mode='Markdown'
         )
     )
     
-    # Finaliza a conversa
     return ConversationHandler.END
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -95,11 +95,10 @@ async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE
 # --- LÓGICA DE INICIALIZAÇÃO E WEBHOOK ---
 ptb_app = Application.builder().token(TELEGRAM_TOKEN).build()
 
-# Criando o Gerente de Conversas (ConversationHandler)
 conv_handler = ConversationHandler(
     entry_points=[
         CommandHandler("start", start_conversation),
-        MessageHandler(filters.TEXT & ~filters.COMMAND, start_conversation) # Qualquer texto que não seja comando
+        MessageHandler(filters.TEXT & ~filters.COMMAND, start_conversation)
     ],
     states={
         CHOOSE_SERVICE: [MessageHandler(filters.Regex("^(1|2)"), handle_service_choice)],
