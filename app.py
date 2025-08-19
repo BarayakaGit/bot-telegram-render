@@ -1,4 +1,4 @@
-# app.py - VERSÃO FINAL E CORRIGIDA
+# app.py - VERSÃO DEFINITIVA
 import logging
 import os
 import asyncio
@@ -40,27 +40,37 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"De: {user_info.first_name} (@{user_info.username})\n"
         f"Mensagem: '{text}'"
     )
-    await context.bot.send_message(chat_id=SEU_CHAT_ID, text=mensagem_notificacao)
-    await update.message.reply_text("Obrigado pelo seu contato! Sua mensagem foi recebida e um especialista responderá em breve.")
+    # Envia a notificação e a resposta em paralelo para mais eficiência
+    await asyncio.gather(
+        context.bot.send_message(chat_id=SEU_CHAT_ID, text=mensagem_notificacao),
+        update.message.reply_text("Obrigado pelo seu contato! Sua mensagem foi recebida e um especialista responderá em breve.")
+    )
 
 # --- LÓGICA DE INICIALIZAÇÃO E WEBHOOK ---
-application = Application.builder().token(TELEGRAM_TOKEN).build()
-application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-
-# <<< A CORREÇÃO FINAL ESTÁ AQUI >>>
-# Roda a função de inicialização assíncrona uma vez quando o app começa.
-asyncio.run(application.initialize())
-
-bot = application.bot
+# Pre-configura a aplicação do bot UMA VEZ.
+ptb_app = Application.builder().token(TELEGRAM_TOKEN).build()
+ptb_app.add_handler(CommandHandler("start", start))
+ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook_handler():
     """Lida com as atualizações vindas do Telegram."""
-    if flask.request.is_json:
-        update_json = flask.request.get_json()
-        update = Update.de_json(update_json, bot)
-        asyncio.run(application.process_update(update))
+    
+    async def process_telegram_update():
+        # Inicializa a aplicação (liga o sistema elétrico)
+        await ptb_app.initialize()
+        
+        update = Update.de_json(flask.request.get_json(), ptb_app.bot)
+        
+        # Processa a mensagem
+        await ptb_app.process_update(update)
+        
+        # Desliga a aplicação de forma limpa
+        await ptb_app.shutdown()
+
+    # Roda o processo completo em um novo loop de eventos a cada chamada
+    asyncio.run(process_telegram_update())
+    
     return 'ok', 200
 
 @app.route('/')
